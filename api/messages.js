@@ -82,6 +82,14 @@ const githubRequest = async (url, options = {}) => {
   return { response, body }
 }
 
+const errorFromGithubResponse = (prefix, response, body) => {
+  const detail = isObject(body) && typeof body.message === 'string' ? body.message : ''
+  const suffix = detail ? `: ${detail}` : ''
+  const error = new Error(`${prefix} with ${response.status}${suffix}`)
+  error.status = response.status
+  return error
+}
+
 const readRepoStore = async (config) => {
   const { owner, repo, branch, filePath, token } = config
   const normalizedPath = filePath.split('/').map((segment) => encodeURIComponent(segment)).join('/')
@@ -104,7 +112,7 @@ const readRepoStore = async (config) => {
   }
 
   if (!response.ok) {
-    throw new Error(`GitHub read failed with ${response.status}`)
+    throw errorFromGithubResponse('GitHub read failed', response, body)
   }
 
   if (!isObject(body) || typeof body.content !== 'string') {
@@ -137,7 +145,7 @@ const writeRepoStore = async (config, store, sha) => {
     payload.sha = sha
   }
 
-  const { response } = await githubRequest(url, {
+  const { response, body } = await githubRequest(url, {
     method: 'PUT',
     headers: {
       Accept: 'application/vnd.github+json',
@@ -149,7 +157,7 @@ const writeRepoStore = async (config, store, sha) => {
   })
 
   if (!response.ok) {
-    throw new Error(`GitHub write failed with ${response.status}`)
+    throw errorFromGithubResponse('GitHub write failed', response, body)
   }
 }
 
@@ -185,14 +193,65 @@ const json = (res, status, payload) => {
   res.end(JSON.stringify(payload))
 }
 
-const parseBody = (req) => {
+const parseBody = async (req) => {
   if (typeof req.body === 'string') {
     return JSON.parse(req.body)
   }
   if (isObject(req.body)) {
     return req.body
   }
-  return {}
+
+  const chunks = []
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+
+  if (chunks.length === 0) {
+    return {}
+  }
+
+  const raw = Buffer.concat(chunks).toString('utf8')
+  return raw ? JSON.parse(raw) : {}
+}
+
+const persistRecord = async (record) => {
+  const maxAttempts = 2
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const storage = await readStore()
+
+    if (!storage.store.messages.some((message) => message.id === record.id)) {
+      storage.store.messages.push(record)
+    }
+
+    try {
+      await writeStore({
+        mode: storage.mode,
+        githubConfig: storage.githubConfig,
+        sha: storage.sha,
+        store: storage.store,
+      })
+
+      return {
+        mode: storage.mode,
+      }
+    } catch (error) {
+      const isRepoConflict =
+        storage.mode === 'repo' &&
+        attempt < maxAttempts &&
+        error instanceof Error &&
+        'status' in error &&
+        error.status === 409
+
+      if (isRepoConflict) {
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  throw new Error('failed to persist message after retries')
 }
 
 export default async function handler(req, res) {
@@ -209,7 +268,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      const body = parseBody(req)
+      const body = await parseBody(req)
       const reply = typeof body.reply === 'string' ? body.reply.trim() : ''
       const sentAt = typeof body.sentAt === 'string' ? body.sentAt : new Date().toISOString()
 
@@ -218,7 +277,6 @@ export default async function handler(req, res) {
         return
       }
 
-      const storage = await readStore()
       const record = {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         payload: {
@@ -227,17 +285,11 @@ export default async function handler(req, res) {
         },
       }
 
-      storage.store.messages.push(record)
-      await writeStore({
-        mode: storage.mode,
-        githubConfig: storage.githubConfig,
-        sha: storage.sha,
-        store: storage.store,
-      })
+      const result = await persistRecord(record)
 
       json(res, 201, {
         message: record,
-        mode: storage.mode,
+        mode: result.mode,
       })
       return
     } catch (error) {
