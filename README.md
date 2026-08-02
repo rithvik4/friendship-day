@@ -77,3 +77,22 @@ npm run preview
 
 - Favicon is configured in `index.html` and currently points to `/frnd_favicon1.png`.
 - Main interaction/state logic is intentionally centralized in `src/App.tsx` for easier iteration on storytelling behavior.
+
+## Message Persistence (JSON File)
+
+- User replies are persisted to `data/messages.json`.
+- Local development (`npm run dev`) writes to this JSON file via a Vite middleware route at `/api/messages`.
+- Vercel production writes to the same JSON path in your GitHub repository by committing changes through the GitHub Contents API.
+
+### Required Vercel Environment Variables
+
+- `GITHUB_TOKEN`: GitHub token with repository contents write access.
+- `GITHUB_REPO_OWNER`: repository owner (example: `rithvik4`).
+- `GITHUB_REPO_NAME`: repository name (example: `friendship-day`).
+
+### Optional Variables
+
+- `GITHUB_REPO_BRANCH`: branch to commit to (default: `main`).
+- `MESSAGES_JSON_PATH`: path inside repo (default: `data/messages.json`).
+
+Production behavior is strict: when deployed on Vercel production, missing GitHub variables return an API error instead of silently using temporary storage.

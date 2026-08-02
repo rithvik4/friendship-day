@@ -107,6 +107,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 0 6px 0 10px;
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -224,13 +225,16 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
+  flex: 1;
   min-width: 0;
 }
 
 .chat-contact-trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 7px;
+  flex: 1;
   border: 0;
   background: transparent;
   color: inherit;
@@ -242,15 +246,16 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 50% 30%, rgba(222, 241, 253, 0.95) 0 38%, transparent 39%),
-    radial-gradient(circle at 50% 88%, rgba(222, 241, 253, 0.95) 0 45%, transparent 46%),
-    linear-gradient(165deg, rgba(191, 229, 244, 0.92), rgba(147, 205, 226, 0.9));
+  object-fit: cover;
+  object-position: center;
+  display: block;
   border: 1px solid rgba(223, 248, 255, 0.65);
 }
 
 .chat-contact-meta {
+  flex: 1;
   min-width: 0;
+  text-align: left;
 }
 
 .chat-contact-name {
@@ -298,16 +303,16 @@ body {
 }
 
 .chat-composer {
-  align-items: center;
+  align-items: flex-end;
 }
 
 .chat-composer-field {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   flex: 1;
   min-width: 0;
-  height: 40px;
+  min-height: 40px;
   padding: 0 8px 0 8px;
   border-radius: 999px;
   border: 1px solid rgba(225, 216, 198, 0.8);
@@ -326,6 +331,7 @@ body {
   background: transparent;
   color: rgba(136, 136, 136, 0.95);
   flex: 0 0 auto;
+  margin-bottom: 6px;
 }
 
 .chat-composer-camera {
@@ -341,6 +347,16 @@ body {
   color: #7c7c7c;
   font-size: 14px;
   font-weight: 500;
+}
+
+.chat-composer-textarea {
+  display: block;
+  min-height: 40px;
+  max-height: 108px;
+  line-height: 1.35;
+  padding: 10px 0;
+  resize: none;
+  overflow-y: auto;
 }
 
 .chat-composer-input-hidden {
@@ -421,12 +437,9 @@ body {
   height: 10.5rem;
   border-radius: 999px;
   border: 1px solid #f0ddb6;
-  background: #f9edce;
-  color: #9c6f22;
-  display: grid;
-  place-items: center;
-  font-size: 5.5rem;
-  font-weight: 500;
+  object-fit: cover;
+  object-position: center;
+  display: block;
 }
 
 .profile-name {

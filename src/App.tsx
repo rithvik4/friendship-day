@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import confetti from 'canvas-confetti'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Ban, Camera, CheckCheck, ChevronLeft, CircleMinus, Flashlight, Flag, Heart, Image, Mic, MoreVertical, Pencil, Phone, Search, Smile, Sparkles, Star, Trash2, Video, X } from 'lucide-react'
+import { Ban, Camera, CheckCheck, ChevronLeft, CircleMinus, Flashlight, Flag, Heart, Image, Mic, MoreVertical, Pencil, Phone, Search, Send, Smile, Sparkles, Star, Trash2, Video, X } from 'lucide-react'
 import { gsap } from 'gsap'
 
 type Speaker = 'friend' | 'you'
@@ -10,11 +10,23 @@ type ChatItem =
   | { id: string; kind: 'separator'; text: string }
   | { id: string; kind: 'timestamp'; text: string }
   | { id: string; kind: 'status'; text: string }
-  | { id: string; kind: 'seen' }
+  | { id: string; kind: 'seen'; from: Speaker }
   | { id: string; kind: 'image'; from: Speaker; src: string; alt: string; time?: string }
   | { id: string; kind: 'message'; from: Speaker; text: string; time?: string; montage?: boolean }
 
 type Scene = 'intro' | 'chat' | 'ending' | 'finale'
+
+type FinalReplyRecord = {
+  id: string
+  payload: {
+    reply: string
+    sentAt: string
+  }
+}
+
+type MessagesApiResponse = {
+  message?: FinalReplyRecord
+}
 
 const QUOTES = [
   'Friends are the family we choose.',
@@ -65,6 +77,7 @@ const FINAL_LINES = [
 ]
 
 const UNAVAILABLE_TOAST_TEXT = 'you can not do this'
+const PROFILE_PICTURE_SRC = `${import.meta.env.BASE_URL}profile%20pic.jpeg`
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -84,8 +97,13 @@ function App() {
   const [toast, setToast] = useState('')
   const [cursor, setCursor] = useState({ x: -100, y: -100 })
   const [showIntroNotification, setShowIntroNotification] = useState(false)
+  const [finalReplyInput, setFinalReplyInput] = useState('')
+  const [finalReplyRecords, setFinalReplyRecords] = useState<FinalReplyRecord[]>([])
+  const [isSavingFinalReply, setIsSavingFinalReply] = useState(false)
+  const canReplyInFinale = scene === 'finale' && finalLineCount === FINAL_LINES.length
 
   const chatBodyRef = useRef<HTMLDivElement | null>(null)
+  const finalReplyInputRef = useRef<HTMLTextAreaElement | null>(null)
   const phoneRef = useRef<HTMLDivElement | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const toastTimerRef = useRef<number | null>(null)
@@ -124,7 +142,7 @@ function App() {
     const chatBody = chatBodyRef.current
     if (!chatBody) return
     chatBody.scrollTo({ top: chatBody.scrollHeight, behavior: 'smooth' })
-  }, [items, typing, finalLineCount])
+  }, [items, typing, finalLineCount, finalReplyRecords])
 
   useEffect(() => {
     if (!phoneRef.current || scene !== 'finale') return
@@ -159,6 +177,44 @@ function App() {
   useEffect(() => {
     showProfileRef.current = showProfile
   }, [showProfile])
+
+  useEffect(() => {
+    const textarea = finalReplyInputRef.current
+    if (!textarea) return
+
+    textarea.style.height = 'auto'
+    const nextHeight = Math.min(textarea.scrollHeight, 108)
+    textarea.style.height = `${Math.max(40, nextHeight)}px`
+  }, [finalReplyInput, canReplyInFinale])
+
+  const normalizeFinalReplyRecord = (value: unknown): FinalReplyRecord | null => {
+    if (!value || typeof value !== 'object') return null
+
+    const candidate = value as {
+      id?: unknown
+      payload?: {
+        reply?: unknown
+        sentAt?: unknown
+      }
+    }
+
+    if (
+      typeof candidate.id !== 'string' ||
+      !candidate.payload ||
+      typeof candidate.payload.reply !== 'string' ||
+      typeof candidate.payload.sentAt !== 'string'
+    ) {
+      return null
+    }
+
+    return {
+      id: candidate.id,
+      payload: {
+        reply: candidate.payload.reply,
+        sentAt: candidate.payload.sentAt,
+      },
+    }
+  }
 
   const ensureAudio = () => {
     if (audioCtxRef.current) return audioCtxRef.current
@@ -285,112 +341,128 @@ function App() {
 
   const runStory = async (runId: number) => {
     const isRunActive = () => activeRunIdRef.current === runId
+    const reverseSpeaker = (speaker: Speaker): Speaker => (speaker === 'friend' ? 'you' : 'friend')
+    const addAutoMessage = async (
+      from: Speaker,
+      text: string,
+      options?: { time?: string; delay?: number; montage?: boolean; incoming?: boolean },
+    ) => {
+      const reversedFrom = reverseSpeaker(from)
+      const incoming = options?.incoming ?? reversedFrom === 'friend'
+      await addMessage(reversedFrom, text, { ...options, incoming })
+    }
+    const showAutoTyping = async (from: Speaker, duration = 1000, text = 'typing...') => {
+      await showTyping(reverseSpeaker(from), duration, text)
+    }
+    const addAutoImage = async (from: Speaker, src: string, alt: string, options?: { time?: string; delay?: number }) => {
+      await addImage(reverseSpeaker(from), src, alt, options)
+    }
 
     await addSeparator('3 Years Ago')
     if (!isRunActive()) return
-    await addMessage('friend', 'Hey 👋', { time: '9:14 PM' })
+    await addAutoMessage('friend', 'Hey 👋', { time: '9:14 PM' })
     if (!isRunActive()) return
-    await addMessage('you', 'You free?', { time: '9:15 PM' })
+    await addAutoMessage('you', 'You free?', { time: '9:15 PM' })
     if (!isRunActive()) return
-    await addMessage('friend', 'Bro...')
+    await addAutoMessage('friend', 'Bro...')
     if (!isRunActive()) return
-    await addMessage('friend', 'Where are you?')
+    await addAutoMessage('friend', 'Where are you?')
     if (!isRunActive()) return
-    await addMessage('you', 'Coming.')
+    await addAutoMessage('you', 'Coming.')
     if (!isRunActive()) return
-    await addMessage('friend', 'How long?')
+    await addAutoMessage('friend', 'How long?')
     if (!isRunActive()) return
-    await addMessage('you', '5 mins.')
+    await addAutoMessage('you', '5 mins.')
     if (!isRunActive()) return
     await waitForUnpaused()
-    pushItem({ id: `${Date.now()}-${Math.random()}`, kind: 'seen' })
+    pushItem({ id: `${Date.now()}-${Math.random()}`, kind: 'seen', from: reverseSpeaker('you') })
     await pauseAwareWait(1200)
     if (!isRunActive()) return
-    await addMessage('friend', 'Still coming? 😂')
+    await addAutoMessage('friend', 'Still coming? 😂')
     if (!isRunActive()) return
 
     await addSeparator('Last Year')
     if (!isRunActive()) return
-    await addMessage('friend', 'Hungry?')
+    await addAutoMessage('friend', 'Hungry?')
     if (!isRunActive()) return
-    await addMessage('you', 'Always.')
+    await addAutoMessage('you', 'Always.')
     if (!isRunActive()) return
-    await addMessage('friend', 'Tea?')
+    await addAutoMessage('friend', 'Tea?')
     if (!isRunActive()) return
-    await addMessage('you', 'Always.')
+    await addAutoMessage('you', 'Always.')
     if (!isRunActive()) return
-    await addMessage('friend', 'Biryani?')
+    await addAutoMessage('friend', 'Biryani?')
     if (!isRunActive()) return
-    await addMessage('you', 'Say less.')
+    await addAutoMessage('you', 'Say less.')
     if (!isRunActive()) return
 
     await addSeparator('10 Months Back')
     if (!isRunActive()) return
-    await addMessage('friend', 'Need help.')
+    await addAutoMessage('friend', 'Need help.')
     if (!isRunActive()) return
-    await showTyping('you', 1000)
+    await showAutoTyping('you', 1000)
     if (!isRunActive()) return
-    await addMessage('you', 'Location?')
+    await addAutoMessage('you', 'Location?')
     if (!isRunActive()) return
 
     await addSeparator('3 Months Back')
     if (!isRunActive()) return
-    await addMessage('friend', 'Failed my exam.')
+    await addAutoMessage('friend', 'Failed my exam.')
     await pauseAwareWait(1000)
     if (!isRunActive()) return
-    await showTyping('you', 1200)
+    await showAutoTyping('you', 1200)
     if (!isRunActive()) return
-    await addMessage('you', "We'll figure it out.")
+    await addAutoMessage('you', "We'll figure it out.")
     if (!isRunActive()) return
-    await addMessage('you', "I'm with you.")
+    await addAutoMessage('you', "I'm with you.")
     if (!isRunActive()) return
 
     await addSeparator('2 Months Back')
     if (!isRunActive()) return
-    await addMessage('friend', 'Got the job!!')
+    await addAutoMessage('friend', 'Got the job!!')
     if (!isRunActive()) return
     await addStatus('🎉', 650)
     if (!isRunActive()) return
     launchConfetti(90)
-    await addMessage('you', 'I knew you would ❤️')
+    await addAutoMessage('you', 'I knew you would ❤️')
     if (!isRunActive()) return
-    await addMessage('you', 'Celebration time!!')
+    await addAutoMessage('you', 'Celebration time!!')
     if (!isRunActive()) return
 
     await addSeparator('Late Night')
     if (!isRunActive()) return
-    await addMessage('friend', 'You awake?')
+    await addAutoMessage('friend', 'You awake?')
     if (!isRunActive()) return
     await waitForUnpaused()
     pushItem({ id: `${Date.now()}-${Math.random()}`, kind: 'timestamp', text: '2:47 AM' })
     await pauseAwareWait(500)
     if (!isRunActive()) return
-    await showTyping('you', 820)
+    await showAutoTyping('you', 820)
     if (!isRunActive()) return
-    await addMessage('you', 'Yeah.')
+    await addAutoMessage('you', 'Yeah.')
     if (!isRunActive()) return
-    await addMessage('you', "What's up?")
+    await addAutoMessage('you', "What's up?")
     if (!isRunActive()) return
-    await addMessage('friend', 'Need to tell you something.')
+    await addAutoMessage('friend', 'Need to tell you something.')
     if (!isRunActive()) return
-    await showTyping('friend', 920)
+    await showAutoTyping('friend', 920)
     if (!isRunActive()) return
     await addStatus('Deleting...', 640)
     if (!isRunActive()) return
-    await showTyping('friend', 930)
+    await showAutoTyping('friend', 930)
     if (!isRunActive()) return
     await addStatus('Deleting...', 680)
     if (!isRunActive()) return
     await addStatus('Finally...', 760)
     if (!isRunActive()) return
-    await addMessage('friend', 'Nothing.')
+    await addAutoMessage('friend', 'Nothing.')
     if (!isRunActive()) return
-    await showTyping('you', 920)
+    await showAutoTyping('you', 920)
     if (!isRunActive()) return
-    await addMessage('you', "I'm listening anyway.")
+    await addAutoMessage('you', "I'm listening anyway.")
     if (!isRunActive()) return
 
-    await addSeparator('Fast Montage')
+    await addSeparator('Random Texts')
     if (!isRunActive()) return
     for (let i = 0; i < MONTAGE_MESSAGES.length; i += 1) {
       if (!isRunActive()) return
@@ -398,14 +470,14 @@ function App() {
       if (!montageText) continue
       const delay = Math.max(86, 340 - i * 16)
       const from: Speaker = i % 2 === 0 ? 'friend' : 'you'
-      await addMessage(from, montageText, { delay, montage: true, incoming: from === 'friend' })
+      await addAutoMessage(from, montageText, { delay, montage: true })
       if (!isRunActive()) return
       setMontageGlow((i + 1) / MONTAGE_MESSAGES.length)
     }
 
     if (!isRunActive()) return
     setScene('ending')
-    setTyping({ from: 'friend', text: 'typing...' })
+    setTyping({ from: reverseSpeaker('friend'), text: 'typing...' })
     for (let i = 0; i < 3; i += 1) {
       if (!isRunActive()) return
       setEndingTypingCount(i + 1)
@@ -417,7 +489,7 @@ function App() {
     setTyping(null)
     await addSeparator('Now')
     if (!isRunActive()) return
-    await addImage('you', `${import.meta.env.BASE_URL}frndssss.jpg`, 'Happy Friendship Day artwork', { delay: 860 })
+    await addAutoImage('you', `${import.meta.env.BASE_URL}frndssss.jpg`, 'Happy Friendship Day artwork', { delay: 860 })
     if (!isRunActive()) return
     setScene('finale')
     launchConfetti(220)
@@ -447,6 +519,8 @@ function App() {
     setShowSparkles(false)
     setShowProfile(false)
     setToast('')
+    setFinalReplyInput('')
+    setFinalReplyRecords([])
 
     if (phoneRef.current) {
       gsap.to(phoneRef.current, {
@@ -475,6 +549,60 @@ function App() {
       setToast('')
       toastTimerRef.current = null
     }, 2400)
+  }
+
+  const submitFinalReply = async () => {
+    if (!canReplyInFinale) return
+    if (isSavingFinalReply) return
+
+    const trimmedReply = finalReplyInput.trim()
+    if (!trimmedReply) return
+
+    // Keep user replies in JSON form in state until full page refresh.
+    const payload = {
+      reply: trimmedReply,
+      sentAt: new Date().toISOString(),
+    }
+
+    const optimisticRecord: FinalReplyRecord = {
+      id: `${Date.now()}-${Math.random()}`,
+      payload,
+    }
+
+    setFinalReplyRecords((prev) => [
+      ...prev,
+      optimisticRecord,
+    ])
+
+    setFinalReplyInput('')
+
+    setIsSavingFinalReply(true)
+    try {
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reply: trimmedReply,
+          sentAt: payload.sentAt,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('failed to persist reply')
+      }
+
+      const data = (await response.json()) as MessagesApiResponse
+      const persistedRecord = normalizeFinalReplyRecord(data.message)
+      if (persistedRecord) {
+        setFinalReplyRecords((prev) => prev.map((record) => (record.id === optimisticRecord.id ? { ...record, payload: persistedRecord.payload } : record)))
+      }
+    } catch {
+      // Keep optimistic UI message even when persistence fails.
+    } finally {
+      setIsSavingFinalReply(false)
+    }
   }
 
   const chatStatusTime = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: false })
@@ -552,10 +680,10 @@ function App() {
                   </button>
 
                   <button type="button" onClick={() => setShowProfile(true)} className="chat-contact-trigger" aria-label="Open contact profile">
-                    <div className="chat-avatar" aria-hidden="true" />
+                    <img src={PROFILE_PICTURE_SRC} alt="" className="chat-avatar" aria-hidden="true" />
 
                     <div className="chat-contact-meta">
-                      <p className="chat-contact-name">Best Friend </p>
+                      <p className="chat-contact-name">Rithvik</p>
                       <p className="chat-contact-subtitle">Last seen today at {lastSeenTime}</p>
                     </div>
                   </button>
@@ -584,7 +712,7 @@ function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -24 }}
                 transition={{ duration: 0.75, ease: [0.16, 1, 0.3, 1] }}
-                className="intro-wallpaper relative flex min-h-[min(86svh,760px)] flex-col items-center justify-center gap-8 overflow-hidden px-8 text-center"
+                className="intro-wallpaper relative flex min-h-[768px] flex-col items-center justify-center gap-8 overflow-hidden px-8 text-center"
               >
                 <div className="lockscreen-top absolute left-0 top-0 z-20 flex w-full items-center justify-between px-7 pt-5 text-white/90">
                   <span className="text-sm font-medium tracking-wide">Airtel</span>
@@ -712,9 +840,9 @@ function App() {
                           return (
                             <motion.div
                               key={item.id}
-                              initial={{ opacity: 0, x: 12 }}
+                              initial={{ opacity: 0, x: item.from === 'you' ? 12 : -12 }}
                               animate={{ opacity: 1, x: 0 }}
-                              className="ml-auto flex w-fit items-center gap-1 text-xs font-medium text-[#2f9f64]"
+                              className={`flex w-fit items-center gap-1 text-xs font-medium text-[#2f9f64] ${item.from === 'you' ? 'ml-auto' : ''}`}
                             >
                               Seen <CheckCheck className="h-3.5 w-3.5" />
                             </motion.div>
@@ -722,6 +850,8 @@ function App() {
                         }
 
                         if (item.kind === 'image') {
+                          const isIncoming = item.from === 'friend'
+
                           return (
                             <motion.div
                               key={item.id}
@@ -733,7 +863,9 @@ function App() {
                               <div className="max-w-[78%] overflow-hidden rounded-[1.65rem] shadow-lg shadow-black/10">
                                 <img src={item.src} alt={item.alt} className="block h-auto w-full max-w-[290px] object-cover" />
                                 {item.time && (
-                                  <div className={`px-2 py-1 text-right text-[10px] ${item.from === 'you' ? 'text-[#4f6f4f]/80' : 'text-[#7a7a7a]'}`}>
+                                  <div
+                                    className={`px-2 py-1 text-[10px] ${isIncoming ? 'text-left text-[#7a7a7a]' : 'text-right text-[#4f6f4f]/80'}`}
+                                  >
                                     {item.time}
                                   </div>
                                 )}
@@ -741,6 +873,8 @@ function App() {
                             </motion.div>
                           )
                         }
+
+                        const isIncoming = item.from === 'friend'
 
                         return (
                           <motion.div
@@ -764,9 +898,11 @@ function App() {
                             >
                               <p>{item.text}</p>
                               {item.time && (
-                                <div className={`mt-1 flex items-center gap-1 text-[10px] ${item.from === 'you' ? 'justify-end text-[#4f6f4f]/80' : 'text-[#7a7a7a]'}`}>
+                                <div
+                                  className={`mt-1 flex items-center gap-1 text-[10px] ${isIncoming ? 'justify-start text-[#7a7a7a]' : 'justify-end text-[#4f6f4f]/80'}`}
+                                >
                                   <span>{item.time}</span>
-                                  {item.from === 'you' && <CheckCheck className="h-3 w-3 text-[#2fa866]" />}
+                                  {!isIncoming && <CheckCheck className="h-3 w-3 text-[#2fa866]" />}
                                 </div>
                               )}
                             </div>
@@ -793,12 +929,12 @@ function App() {
                     {scene === 'finale' && (
                       <div className="space-y-3 pt-2">
                         <motion.div
-                          initial={{ opacity: 0, x: 24, y: 8 }}
+                          initial={{ opacity: 0, x: -24, y: 8 }}
                           animate={{ opacity: 1, x: 0, y: 0 }}
                           transition={{ duration: 0.42, delay: 0.1 }}
-                          className="flex justify-end"
+                          className="flex justify-start"
                         >
-                          <div className="max-w-[84%] rounded-3xl rounded-br-md border border-[#cde8a8] bg-[#dff9b8] px-4 py-2.5 text-sm leading-relaxed text-[#1f2a1f] shadow-lg shadow-[#b4d98a]/40">
+                          <div className="max-w-[84%] rounded-3xl rounded-bl-md border border-[#e8e8e8] bg-[#fbfbfb] px-4 py-2.5 text-sm leading-relaxed text-[#202124] shadow-lg shadow-black/10">
                             <p className="whitespace-pre-line">
                               {FINAL_LINES.slice(0, finalLineCount).map((line, index) => (
                                 <span key={`${line}-${index}`} className={line === 'HAPPY FRIENDSHIP DAY ❤️' ? 'font-bold' : ''}>
@@ -808,13 +944,50 @@ function App() {
                               ))}
                             </p>
                             {finalLineCount > 0 && (
-                              <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#4f6f4f]/80">
+                              <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#7a7a7a]">
                                 <span>{chatStatusTime}</span>
-                                <CheckCheck className="h-3 w-3 text-[#2fa866]" />
                               </div>
                             )}
                           </div>
                         </motion.div>
+
+                        {finalReplyRecords.map((record, index) => {
+                          const replyTime = new Date(record.payload.sentAt).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                          })
+
+                          return (
+                            <div key={record.id} className="space-y-2">
+                              <motion.div
+                                initial={{ opacity: 0, x: 24, y: 8 }}
+                                animate={{ opacity: 1, x: 0, y: 0 }}
+                                transition={{ duration: 0.3, delay: 0.05 * index }}
+                                className="flex justify-end"
+                              >
+                                <div className="max-w-[84%] rounded-3xl rounded-br-md border border-[#cde8a8] bg-[#dff9b8] px-4 py-2.5 text-sm leading-relaxed text-[#1f2a1f] shadow-lg shadow-[#b4d98a]/40">
+                                  <p className="whitespace-pre-line break-words">{record.payload.reply}</p>
+                                  <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#4f6f4f]/80">
+                                    <span>{replyTime}</span>
+                                    <CheckCheck className="h-3 w-3 text-[#2fa866]" />
+                                  </div>
+                                </div>
+                              </motion.div>
+
+                              <motion.div
+                                initial={{ opacity: 0, x: -18, y: 6 }}
+                                animate={{ opacity: 1, x: 0, y: 0 }}
+                                transition={{ duration: 0.28, delay: 0.08 * index }}
+                                className="flex justify-start"
+                              >
+                                <div className="max-w-[84%] rounded-3xl rounded-bl-md border border-[#e8e8e8] bg-[#fbfbfb] px-4 py-2.5 text-sm leading-relaxed text-[#202124] shadow-lg shadow-black/10">
+                                  <p>Thank you ❤️</p>
+                                </div>
+                              </motion.div>
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </motion.div>
@@ -828,12 +1001,20 @@ function App() {
                           <Smile className="h-[18px] w-[18px]" />
                         </button>
 
-                        <input
-                          type="text"
+                        <textarea
+                          ref={finalReplyInputRef}
                           aria-label="Type a message"
-                          placeholder="Type a message"
-                          readOnly
-                          className={`chat-composer-input ${typing || scene === 'ending' ? 'chat-composer-input-hidden' : ''}`}
+                          placeholder={canReplyInFinale ? 'Reply here...' : 'Type a message'}
+                          readOnly={!canReplyInFinale}
+                          rows={1}
+                          value={finalReplyInput}
+                          onChange={(event) => setFinalReplyInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' || event.shiftKey) return
+                            event.preventDefault()
+                            void submitFinalReply()
+                          }}
+                          className={`chat-composer-input chat-composer-textarea ${typing || scene === 'ending' ? 'chat-composer-input-hidden' : ''}`}
                         />
 
                         {(typing || scene === 'ending') && (
@@ -850,9 +1031,21 @@ function App() {
                         </button>
                       </div>
 
-                      <button type="button" aria-label="Voice message" onClick={() => handleUnavailableAction('chat-bottom-right')} className="chat-composer-mic">
-                        <Mic className="h-[20px] w-[20px]" />
-                      </button>
+                      {canReplyInFinale ? (
+                        <button
+                          type="button"
+                          aria-label="Send message"
+                          onClick={() => void submitFinalReply()}
+                          disabled={isSavingFinalReply}
+                          className="chat-composer-mic disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          <Send className="h-[19px] w-[19px]" />
+                        </button>
+                      ) : (
+                        <button type="button" aria-label="Voice message" onClick={() => handleUnavailableAction('chat-bottom-right')} className="chat-composer-mic">
+                          <Mic className="h-[20px] w-[20px]" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -875,8 +1068,8 @@ function App() {
               </div>
 
               <div className="profile-main">
-                <div className="profile-avatar">B</div>
-                <p className="profile-name">Best Friend</p>
+                <img src={PROFILE_PICTURE_SRC} alt="Rithvik profile picture" className="profile-avatar" />
+                <p className="profile-name">Rithvik</p>
                 <p className="profile-number">+91 9949977120</p>
 
                 <div className="profile-quick-actions">
