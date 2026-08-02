@@ -56,7 +56,8 @@ const writeLocalStore = async (store) => {
 const getGithubConfig = () => {
   const token = process.env.GITHUB_TOKEN
   const owner = process.env.GITHUB_REPO_OWNER ?? process.env.VERCEL_GIT_REPO_OWNER
-  const repo = process.env.GITHUB_REPO_NAME ?? process.env.VERCEL_GIT_REPO_SLUG
+  const rawRepo = process.env.GITHUB_REPO_NAME ?? process.env.VERCEL_GIT_REPO_SLUG
+  const repo = typeof rawRepo === 'string' ? rawRepo.split('/').pop() ?? rawRepo : rawRepo
   const branch = process.env.GITHUB_REPO_BRANCH ?? process.env.VERCEL_GIT_COMMIT_REF ?? 'main'
   const filePath = process.env.MESSAGES_JSON_PATH ?? 'data/messages.json'
 
@@ -83,8 +84,8 @@ const githubRequest = async (url, options = {}) => {
 
 const readRepoStore = async (config) => {
   const { owner, repo, branch, filePath, token } = config
-  const encodedPath = encodeURIComponent(filePath)
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`
+  const normalizedPath = filePath.split('/').map((segment) => encodeURIComponent(segment)).join('/')
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${normalizedPath}?ref=${encodeURIComponent(branch)}`
 
   const { response, body } = await githubRequest(url, {
     method: 'GET',
@@ -121,8 +122,8 @@ const readRepoStore = async (config) => {
 
 const writeRepoStore = async (config, store, sha) => {
   const { owner, repo, branch, filePath, token } = config
-  const encodedPath = encodeURIComponent(filePath)
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`
+  const normalizedPath = filePath.split('/').map((segment) => encodeURIComponent(segment)).join('/')
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${normalizedPath}`
   const content = Buffer.from(`${JSON.stringify(store, null, 2)}\n`, 'utf8').toString('base64')
 
   const commitMessage = `chore(messages): append reply ${new Date().toISOString()}`
@@ -153,14 +154,14 @@ const writeRepoStore = async (config, store, sha) => {
 }
 
 const readStore = async () => {
-  const useRepoStorage = process.env.VERCEL_ENV === 'production'
+  const isVercelDeployment = process.env.VERCEL === '1'
   const githubConfig = getGithubConfig()
 
-  if (useRepoStorage && !githubConfig) {
-    throw new Error('missing GitHub env: set GITHUB_TOKEN and repo owner/name variables for production persistence')
+  if (isVercelDeployment && !githubConfig) {
+    throw new Error('missing GitHub env: set GITHUB_TOKEN and repo owner/name variables for Vercel persistence')
   }
 
-  if (useRepoStorage && githubConfig) {
+  if (isVercelDeployment && githubConfig) {
     const { store, sha } = await readRepoStore(githubConfig)
     return { store, mode: 'repo', sha, githubConfig }
   }
